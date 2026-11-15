@@ -621,12 +621,22 @@ func set(jstr, path, raw string,
 	return njson, nil
 }
 
+// validReplaceIndex reports whether the byte range [index, index+rawLen)
+// lies within a JSON string of length n. gjson can report indexes past the
+// end of the input when the JSON is malformed, and Set must not panic then.
+func validReplaceIndex(n, index, rawLen int) bool {
+	return index >= 0 && index <= n && rawLen <= n-index
+}
+
 func setComplexPath(jstr, path, raw string, stringify bool) ([]byte, error) {
 	res := gjson.Get(jstr, path)
 	if !res.Exists() || !(res.Index != 0 || len(res.Indexes) != 0) {
 		return []byte(jstr), errNoChange
 	}
 	if res.Index != 0 {
+		if !validReplaceIndex(len(jstr), res.Index, len(res.Raw)) {
+			return []byte(jstr), errNoChange
+		}
 		njson := []byte(jstr[:res.Index])
 		if stringify {
 			njson = appendStringify(njson, raw)
@@ -658,6 +668,9 @@ func setComplexPath(jstr, path, raw string, stringify bool) ([]byte, error) {
 		for _, val := range vals {
 			vres := val.res
 			index := val.index
+			if !validReplaceIndex(len(jstr), index, len(vres.Raw)) {
+				continue
+			}
 			njson := []byte(jstr[:index])
 			if stringify {
 				njson = appendStringify(njson, raw)

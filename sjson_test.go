@@ -438,3 +438,48 @@ func TestIssue99(t *testing.T) {
 		t.FailNow()
 	}
 }
+
+func TestInvalidJSONComplexPathNoPanic(t *testing.T) {
+	// SetOptions documents that malformed JSON will not panic, but a gjson
+	// index could point past the end of the input and the complex path
+	// replacement would slice out of bounds.
+	const json = `{""{`
+	const path = `..#.`
+	const value = `0`
+
+	if got, err := Set(json, path, value); err != nil || got != json {
+		t.Fatalf("Set: got %q, err %v; want unchanged %q", got, err, json)
+	}
+	if got, err := SetRaw(json, path, value); err != nil || got != json {
+		t.Fatalf("SetRaw: got %q, err %v; want unchanged %q", got, err, json)
+	}
+	if got, err := SetOptions(json, path, value, &Options{Optimistic: true}); err != nil || got != json {
+		t.Fatalf("SetOptions: got %q, err %v; want unchanged %q", got, err, json)
+	}
+	if got, err := SetBytes([]byte(json), path, value); err != nil || string(got) != json {
+		t.Fatalf("SetBytes: got %q, err %v; want unchanged %q", got, err, json)
+	}
+}
+
+func FuzzSet(f *testing.F) {
+	seeds := [][3]string{
+		{`{"a":1}`, "a", "2"},
+		{`{"a":{"b":[1,2]}}`, "a.b.0", `"x"`},
+		{`[{"a":1},{"a":2}]`, "#.a", "3"},
+		{`{"":1}`, "..", "0"},
+		{`{""{`, `..#.`, "0"},
+		{`{}`, "a.b.c", "1"},
+	}
+	for _, seed := range seeds {
+		f.Add(seed[0], seed[1], seed[2])
+	}
+	f.Fuzz(func(t *testing.T, json, path, value string) {
+		_, _ = Set(json, path, value)
+		_, _ = SetRaw(json, path, value)
+		_, _ = Delete(json, path)
+		_, _ = SetOptions(json, path, value, &Options{Optimistic: true})
+		_, _ = SetOptions(json, path, value, &Options{ReplaceInPlace: true})
+		_, _ = SetBytes([]byte(json), path, value)
+		_, _ = DeleteBytes([]byte(json), path)
+	})
+}
